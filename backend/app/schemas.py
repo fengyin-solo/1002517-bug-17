@@ -28,6 +28,44 @@ class EntryPayload(BaseModel):
     remark: str | None = None
 
 
+class InspectionItemPayload(BaseModel):
+    """一次车载排查里单台设备的检查结果，字段缺省时保留该设备原有数据。"""
+
+    id: int | None = None
+    设备编号: str | None = None
+    自检状态: str | None = None
+    制动接口: str | None = None
+    记录数据: str | None = None
+    remark: str | None = None
+
+
+class BatchInspectionPayload(BaseModel):
+    """同一列车一次提交的多台车载设备排查结果。"""
+
+    items: list[InspectionItemPayload] = Field(default_factory=list)
+
+
+class DeviceResult(BaseModel):
+    """单台设备的落库结果：成功、跳过或失败都各自挂在自己的设备上。"""
+
+    id: int | None = None
+    设备编号: str | None = None
+    ok: bool
+    skipped: bool = False
+    message: str
+    entry: dict[str, Any] | None = None
+
+
+class BatchActionResult(BaseModel):
+    """批量排查的汇总结果：逐台返回，失败设备不回滚已成功设备。"""
+
+    ok: bool
+    message: str
+    success_count: int = 0
+    failure_count: int = 0
+    skipped_count: int = 0
+    results: list[DeviceResult] = Field(default_factory=list)
+
 
 class InterlockEntry(BaseModel):
     """联锁道岔明细结构。"""

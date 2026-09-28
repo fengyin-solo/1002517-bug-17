@@ -1,11 +1,19 @@
-"""车载设备接口：维护车载ATP，覆盖登记异常、排查通信、办理停用等动作。"""
+"""车载设备接口：维护车载ATP，覆盖登记异常、排查通信、办理停用与批量排查提交。"""
 from __future__ import annotations
 
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas import ActionResult, EntryPayload, PageResult
+from app.schemas import (
+    ActionResult,
+    BatchActionResult,
+    BatchInspectionPayload,
+    DeviceResult,
+    EntryPayload,
+    InspectionItemPayload,
+    PageResult,
+)
 from app.services.atp import AtpService
 
 router = APIRouter(prefix="/api/atp", tags=["车载设备"])
@@ -46,6 +54,25 @@ def create_entry(payload: EntryPayload) -> ActionResult:
     if missing:
         return ActionResult(ok=False, message=f"缺少必填字段：{'、'.join(missing)}")
     return ActionResult(ok=True, message="车载ATP已登记", entry=entry)
+
+
+@router.post("/inspection", response_model=BatchActionResult)
+def submit_inspection(payload: BatchInspectionPayload) -> BatchActionResult:
+    """提交同一列车多台设备的排查结果。
+
+    逐台落库并逐台返回：缺检查结论的设备保留原值并说明，重复设备只生效一次，
+    个别设备失败不回滚同批已成功的设备。
+    """
+    items = [item.model_dump() for item in payload.items]
+    ok, message, results = service.submit_inspection(items)
+    return BatchActionResult(
+        ok=ok,
+        message=message,
+        success_count=sum(1 for r in results if r["ok"] and not r["skipped"]),
+        failure_count=sum(1 for r in results if not r["ok"]),
+        skipped_count=sum(1 for r in results if r["skipped"]),
+        results=[DeviceResult(**r) for r in results],
+    )
 
 
 @router.post("/{entry_id}/actions", response_model=ActionResult)
