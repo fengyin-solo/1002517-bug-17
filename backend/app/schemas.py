@@ -28,6 +28,41 @@ class EntryPayload(BaseModel):
     remark: str | None = None
 
 
+class InspectionItem(BaseModel):
+    """排查提交里单台车载设备的检查结果。"""
+
+    model_config = {"extra": "forbid"}
+
+    设备id: int
+    设备编号: str | None = None
+    所属列车: str | None = None
+    自检状态: str | None = None
+    制动接口: str | None = None
+    记录数据: str | None = None
+
+
+class InspectionPayload(BaseModel):
+    """同列车多台车载设备的一次排查批量提交。"""
+
+    items: list[InspectionItem] = Field(default_factory=list)
+    # 前端为每次提交生成的票据：同票据重复提交只回放首次结论，不重复生效。
+    submission_id: str | None = None
+
+
+class InspectionResult(BaseModel):
+    """排查提交的逐台结果与汇总（部分成功时 ok=False 但成功的设备不回滚）。"""
+
+    ok: bool
+    message: str
+    submission_id: str
+    replayed: bool = False
+    success_count: int = 0
+    failure_count: int = 0
+    skipped_count: int = 0
+    items: list[dict[str, Any]] = Field(default_factory=list)
+
+
+
 
 class InterlockEntry(BaseModel):
     """联锁道岔明细结构。"""

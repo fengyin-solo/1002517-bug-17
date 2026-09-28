@@ -1,11 +1,17 @@
-"""车载设备接口：维护车载ATP，覆盖登记异常、排查通信、办理停用等动作。"""
+"""车载设备接口：维护车载ATP，覆盖登记异常、排查通信、办理停用、排查批量提交等动作。"""
 from __future__ import annotations
 
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas import ActionResult, EntryPayload, PageResult
+from app.schemas import (
+    ActionResult,
+    EntryPayload,
+    InspectionPayload,
+    InspectionResult,
+    PageResult,
+)
 from app.services.atp import AtpService
 
 router = APIRouter(prefix="/api/atp", tags=["车载设备"])
@@ -19,15 +25,39 @@ STATUSES = ["正常", "自检异常", "通信中断", "已停用"]
 @router.get("", response_model=PageResult[dict])
 def list_entries(
     keyword: str | None = Query(default=None, description="按设备编号检索"),
+    train: str | None = Query(default=None, description="按所属列车检索"),
     status: str | None = Query(default=None, description="正常、自检异常、通信中断、已停用"),
     page: int = 1,
     size: int = 20,
 ) -> PageResult[dict]:
-    """按设备编号与状态过滤车载设备列表；没有数据时返回空页，不报错。"""
+    """按设备编号、所属列车与车载状态过滤车载设备列表；没有数据时返回空页，不报错。"""
     if size > 200:
         raise HTTPException(status_code=400, detail="每页最多 200 条，请缩小分页范围")
-    items, total = service.list_entries(keyword=keyword, status=status, page=page, size=size)
+    if status and status not in STATUSES:
+        raise HTTPException(status_code=400, detail=f"车载状态仅支持：{'、'.join(STATUSES)}")
+    items, total = service.list_entries(keyword=keyword, train=train, status=status, page=page, size=size)
     return PageResult(items=items, total=total, page=page, size=size)
+
+
+# 注意：静态路径必须排在 /{entry_id} 之前，否则「export」会被当成设备id。
+@router.get("/export")
+def export_entries(train: str | None = None) -> dict[str, Any]:
+    """导出车载设备清单：可按所属列车限定，返回全量数据。"""
+    items, total = service.list_entries(train=train, page=1, size=10000)
+    return {"module": "atp", "total": total, "items": items}
+
+
+@router.post("/inspections", response_model=InspectionResult)
+def submit_inspection(payload: InspectionPayload) -> InspectionResult:
+    """同列车多台车载设备的排查结果一次提交。
+
+    逐台落库、缺项保留原数据、同票据/同批次只生效一次、部分失败不回滚成功项。
+    """
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="本次提交没有任何设备的排查结果")
+    items = [item.model_dump() for item in payload.items]
+    result = service.submit_inspection(items, submission_id=payload.submission_id)
+    return InspectionResult(**result)
 
 
 @router.get("/{entry_id}", response_model=dict)
@@ -56,10 +86,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出车载设备清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "atp", "total": total, "items": items}
